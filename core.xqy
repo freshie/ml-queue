@@ -84,12 +84,18 @@ declare function core:get-num-of-retry(
  : @param $type - type of the request
  : @param $num-of-retry - number of retries
 :)
-declare function core:set-num-of-retry($job-uri, $type, $num-of-retry)
-{
+declare function core:set-num-of-retry(
+  $job-uri as xs:string,
+  $type as xs:string,
+  $num-of-retry as xs:int
+) as item()* {
     let $retry := xs:integer($num-of-retry)-1
     let $value := fn:doc($job-uri)//type/@value
-    return if($value = '' or fn:empty($value)) then xdmp:node-replace(fn:doc($job-uri)//type,  <type num-of-retry="{$retry}">{$type}</type>)
-    else xdmp:node-replace(fn:doc($job-uri)//type,  <type num-of-retry="{$retry}" value="{$value}">{$type}</type>)
+    return
+      if($value = '' or fn:empty($value)) then
+        xdmp:node-replace(fn:doc($job-uri)//type,  <type num-of-retry="{$retry}">{$type}</type>)
+      else
+        xdmp:node-replace(fn:doc($job-uri)//type,  <type num-of-retry="{$retry}" value="{$value}">{$type}</type>)
 };
 
 (:~
@@ -101,8 +107,8 @@ declare function core:set-num-of-retry($job-uri, $type, $num-of-retry)
  : @param $content - map object input to the function
 :)
 declare function core:add-job(
-  $namespace as xs:string, 
-  $function as xs:string, 
+  $namespace as xs:string,
+  $function as xs:string,
   $path as xs:string,
   $type as xs:string,
   $content as item()*
@@ -120,18 +126,20 @@ declare function core:add-job(
  : @param $priorityIN - Customized priority for the type of the request
 :)
 declare function core:add-job(
-  $namespace as xs:string, 
-  $function as xs:string, 
+  $namespace as xs:string,
+  $function as xs:string,
   $path as xs:string,
   $type as xs:string,
   $content as item()*,
   $priorityIN as xs:int?
 ) as xs:string {
    let $priority :=
-     if (fn:empty($priorityIN)) then core:get-priority($type)
-     else $priorityIN
-   return 
-   core:add-job($namespace, $function, $path, $type, $content, $priority, core:get-guid())
+     if (fn:empty($priorityIN)) then
+      core:get-priority($type)
+     else
+      $priorityIN
+   return
+    core:add-job($namespace, $function, $path, $type, $content, $priority, core:get-guid())
 };
 
 (:~
@@ -145,23 +153,22 @@ declare function core:add-job(
  : @param $batchId - Unique id to identify the type of request in the same batch
 :)
 declare function core:add-job(
-  $namespace as xs:string, 
-  $function as xs:string, 
+  $namespace as xs:string,
+  $function as xs:string,
   $path as xs:string,
   $type as xs:string,
   $content as item()*,
   $priorityIN as xs:int?,
   $batchId as xs:string
 ) as xs:string {
-    try
-    {
   let $jobId := core:get-guid()
   let $priority :=
      if (fn:empty($priorityIN)) then core:get-priority($type)
      else $priorityIN
   let $value-type := $type
+
   (:Creating a job xml for the request:)
-  let $newJob := 
+  let $newJob :=
     <job id="{$jobId}" batch="{$batchId}" priority="{$priority}">
       {if($value-type = "default") then
           <type num-of-retry="{core:get-num-of-retry($type)}" value ="{$value-type}">{$type}</type>
@@ -186,11 +193,6 @@ declare function core:add-job(
   let $uri := core:create-uri($jobId, $batchId)
   let $save := edh-governance:ingest-document($uri, $newJob)
   return $jobId
-  }
-  catch($e)
-  {
-    fn:false()
-  }
 };
 
 (:~
@@ -212,7 +214,7 @@ declare function core:create-uri(
  : @param $status - status to be updated
 :)
 declare function core:add-job-status(
-  $job-uri as xs:string, 
+  $job-uri as xs:string,
   $status as xs:string
 ){
     xdmp:node-insert-child(fn:doc($job-uri)//workflow, <status type="{$status}" dateTime="{fn:current-dateTime()}"/>)
@@ -227,8 +229,8 @@ declare function core:add-job-status(
  : @param $content - map object input to the function
 :)
 declare function core:add-job-to-queue(
-  $namespace as xs:string, 
-  $function as xs:string, 
+  $namespace as xs:string,
+  $function as xs:string,
   $path as xs:string,
   $type as xs:string,
   $content as item()*
@@ -236,12 +238,18 @@ declare function core:add-job-to-queue(
     if (fn:empty($content)) then
         xdmp:apply(
               xdmp:function(
-                fn:QName($namespace, $function), $path))
+                fn:QName($namespace, $function),
+                $path
+              )
+            )
     else
-     xdmp:apply(
+      xdmp:apply(
               xdmp:function(
-                fn:QName($namespace, $function), $path)
-                , $content)
+                fn:QName($namespace, $function),
+                $path
+              ),
+              $content
+            )
 };
 
 (:~
@@ -250,8 +258,11 @@ declare function core:add-job-to-queue(
  : @param $element-name - name of element which we are updating
  : @param $element-value - value of the element
 :)
-declare function core:add-execution-specifications($job-uri, $element-name, $element-value)
-{
+declare function core:add-execution-specifications(
+  $job-uri as xs:string,
+  $element-name as xs:string,
+  $element-value as item()
+) as item()* {
     xdmp:invoke-function(
       function() {
         (
@@ -268,7 +279,6 @@ declare function core:add-execution-specifications($job-uri, $element-name, $ele
       <options xmlns="xdmp:eval">
         <transaction-mode>update</transaction-mode>
       </options>)
-   
 };
 
 (:~
@@ -276,8 +286,10 @@ declare function core:add-execution-specifications($job-uri, $element-name, $ele
  : @param $job-uri - uri in which the updates has to happen
  : @param $status - status of the job
 :)
-declare function core:update-job-status($job-uri, $status)
-{
+declare function core:update-job-status(
+  $job-uri as xs:string,
+  $status as xs:string
+)as item()* {
     xdmp:node-replace(fn:doc($job-uri)//job-status, <job-status>{$status}</job-status>),
 };
 
@@ -285,14 +297,18 @@ declare function core:update-job-status($job-uri, $status)
  : Function used to get types of the request which can be executed in host
  : @param $host-name - name of the host
 :)
-declare function core:get-request-type-for-host($host-name)
-{
-    let $host-name := if($environment = 'LOCAL') then 'localhost'
-                      else $host-name
-    let $host-configuration := $config:configuration//node[@name eq $host-name]
+declare function core:get-request-type-for-host(
+    $host-name as xs:string
+) as map:map() {
+    let $host-name :=
+      if ($config:environment = 'LOCAL')
+      then 'localhost'
+      else $host-name
+    let $host-configuration := $config:configuration/nodes/node[@name eq $host-name]
     let $request-type-map := map:map()
-    let $_ := for $type in $host-configuration/types/*
-                return map:put($request-type-map, $type/@name, $type/@threads)
-    
-    return $request-type-map       
+    let $_ :=
+      for $type in $host-configuration/types/type
+      return map:put($request-type-map, $type/@name, $type/@threads)
+    return
+      $request-type-map
 };

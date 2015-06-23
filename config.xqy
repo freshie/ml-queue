@@ -28,6 +28,9 @@ declare variable $job-xml-base :=  "/queue/"
 (: used when saving the job documents :)
 declare variable $permissiosn := xdmp:default-permissions()
 
+(: is expect to be put into an xml doc and queriable  :)
+declare variable $environment := "LOCAL"
+
 (:
  sets the priority, number of threads, host details etc for a type of request
  This is expected to be pushed into an xml doc so that it could change for each environment
