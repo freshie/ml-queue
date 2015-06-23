@@ -24,10 +24,8 @@ module namespace core = "http://github.com/freshie/ml-queue/core";
 
 import module namespace config = "http://github.com/freshie/ml-queue/config" at "/config.xqy";
 import module namespace edh-governance = 'http://aetna.com/edh/libraries/edh-governance' at '/app/lib/edh-governance.xqy';
-import module namespace edh-core = "http://aetna.com/edh/libraries/edh-core" at "/app/lib/edh-core.xqy";
 
 declare variable $currentHost := xdmp:host-name();
-declare variable $environment := edh-core:get-environment();
 
 (:~
  : Function used to generate the unique id
