@@ -24,8 +24,8 @@ import module namespace config = "http://github.com/freshie/ml-queue/config" at 
 
 declare variable $job-id as xs:string external;
 
-let $job-specs-uri := cts:uris((), 'document', cts:and-query((cts:directory-query($config:job-xml-base, 'infinity'),
-                                                                cts:element-attribute-value-query(xs:QName('execution'), xs:QName('job-id'), $job-id))))
-let $xml := fn:doc($job-specs-uri)
-
-return $xml
+let $job-specs-uri := cts:uris((), 'document', cts:and-query((
+																cts:directory-query($config:job-xml-base, 'infinity'),
+                                                            	cts:element-attribute-value-query(xs:QName('execution'), xs:QName('job-id'), $job-id))
+															))
+return fn:doc($job-specs-uri)
