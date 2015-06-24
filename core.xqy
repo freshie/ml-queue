@@ -23,9 +23,7 @@ xquery version "1.0-ml";
 module namespace core = "http://github.com/freshie/ml-queue/core";
 
 import module namespace config = "http://github.com/freshie/ml-queue/config" at "/config.xqy";
-import module namespace edh-governance = 'http://aetna.com/edh/libraries/edh-governance' at '/app/lib/edh-governance.xqy';
 
-declare variable $currentHost := xdmp:host-name();
 
 (:~
  : Function used to generate the unique id
@@ -42,8 +40,8 @@ declare function core:get-priority(
   $type as xs:string
 ) as xs:int {
   (
-    ($config:configuration/nodes/node[@name eq $currentHost]types/type[@name eq $type]/@priority)[1],
-    $config:configuration/nodes/node[@name eq $currentHost]types/type[@name eq 'default']/@priority
+    ($config:configuration/nodes/node[@name eq $config:currentHost]types/type[@name eq $type]/@priority)[1],
+    $config:configuration/nodes/node[@name eq $config:currentHost]types/type[@name eq 'default']/@priority
   )[1]
 };
 
@@ -63,7 +61,7 @@ declare function core:get-hosts(
 declare function core:get-num-of-retry(
   $type as xs:string
 ) as xs:int {
-   core:get-num-of-retry($type, $currentHost)
+   core:get-num-of-retry($type, $config:currentHost)
 };
 
 declare function core:get-num-of-retry(
@@ -71,8 +69,8 @@ declare function core:get-num-of-retry(
   $host as xs:string
 ) as xs:int {
     (
-    ($config:configuration/nodes/node[@name eq $currentHost]types/type[@name eq $type]/@num-of-retry)[1],
-    $config:configuration/nodes/node[@name eq $currentHost]types/type[@name eq 'default']/@num-of-retry
+    ($config:configuration/nodes/node[@name eq $config:currentHost]types/type[@name eq $type]/@num-of-retry)[1],
+    $config:configuration/nodes/node[@name eq $config:currentHost]types/type[@name eq 'default']/@num-of-retry
     )[1]
 };
 
@@ -87,13 +85,14 @@ declare function core:set-num-of-retry(
   $type as xs:string,
   $num-of-retry as xs:int
 ) as item()* {
-    let $retry := xs:integer($num-of-retry)-1
-    let $value := fn:doc($job-uri)//type/@value
+    let $retry := xs:integer($num-of-retry) - 1
+    let $typeNode := fn:doc($job-uri)/element()/type
+    let $value := $typeNode/@value
     return
-      if($value = '' or fn:empty($value)) then
-        xdmp:node-replace(fn:doc($job-uri)//type,  <type num-of-retry="{$retry}">{$type}</type>)
+      if ($value = '' or fn:empty($value)) then
+        xdmp:node-replace($typeNode,  <type num-of-retry="{$retry}">{$type}</type>)
       else
-        xdmp:node-replace(fn:doc($job-uri)//type,  <type num-of-retry="{$retry}" value="{$value}">{$type}</type>)
+        xdmp:node-replace($typeNode,  <type num-of-retry="{$retry}" value="{$value}">{$type}</type>)
 };
 
 (:~
@@ -168,9 +167,10 @@ declare function core:add-job(
   (:Creating a job xml for the request:)
   let $newJob :=
     <job id="{$jobId}" batch="{$batchId}" priority="{$priority}">
-      {if($value-type = "default") then
+      {
+        if($value-type = "default") then
           <type num-of-retry="{core:get-num-of-retry($type)}" value ="{$value-type}">{$type}</type>
-       else
+        else
           <type num-of-retry="{core:get-num-of-retry($type)}">{$type}</type>
       }
       <action>
@@ -179,9 +179,9 @@ declare function core:add-job(
         <path>{$path}</path>
       </action>
       {
-        if (fn:exists($content)) then (
-        <content>{$content}</content>
-        ) else ()
+        if (fn:exists($content)) then
+          <content>{$content}</content>
+        else ()
       }
       <workflow>
         <status type="Added" dateTime="{fn:current-dateTime()}"/>
@@ -189,7 +189,7 @@ declare function core:add-job(
       <job-status>Added</job-status>
     </job>
   let $uri := core:create-uri($jobId, $batchId)
-  let $save := edh-governance:ingest-document($uri, $newJob)
+  let $save := xdmp:document-insert($uri, $document-content, $config:permissions)
   return $jobId
 };
 
@@ -201,10 +201,9 @@ declare function core:add-job(
 declare function core:create-uri(
   $jobId as xs:string,
   $batchId as xs:string
-) as xs:string{
-  $config:EDH-OPTIONS/job-xml-base || "batch/" || $batchId || "/job/" || $jobId || ".xml"
+) as xs:string {
+  $config:job-xml-base || "batch/" || $batchId || "/job/" || $jobId || ".xml"
 };
-
 
 (:~
  : Function used to update the status of the job
@@ -214,8 +213,8 @@ declare function core:create-uri(
 declare function core:add-job-status(
   $job-uri as xs:string,
   $status as xs:string
-){
-    xdmp:node-insert-child(fn:doc($job-uri)//workflow, <status type="{$status}" dateTime="{fn:current-dateTime()}"/>)
+) as item()* {
+    xdmp:node-insert-child(fn:doc($job-uri)/element()/workflow, <status type="{$status}" dateTime="{fn:current-dateTime()}"/>)
 };
 
 (:~
@@ -264,13 +263,18 @@ declare function core:add-execution-specifications(
     xdmp:invoke-function(
       function() {
         (
-           if($element-name = 'host-id' and fn:not(fn:exists(fn:doc($job-uri)//execution/host-id))) then
-            xdmp:node-insert-child(fn:doc($job-uri)//execution, <host-id>{$element-value}</host-id>)
-           else if($element-name = 'server-id' and fn:not(fn:exists(fn:doc($job-uri)//execution/server-id))) then
-            xdmp:node-insert-child(fn:doc($job-uri)//execution, <server-id>{$element-value}</server-id>)
-           else if($element-name = 'request-id' and fn:not(fn:exists(fn:doc($job-uri)//execution/request-id))) then
-            xdmp:node-insert-child(fn:doc($job-uri)//execution, <request-id>{$element-value}</request-id>)
-           else ()
+           let $baseNode := fn:doc($job-uri)/element()
+           let $newElement :=
+             if($element-name = 'host-id' and fn:not(fn:exists($baseNode/execution/host-id))) then
+              <host-id>{$element-value}</host-id>
+             else if($element-name = 'server-id' and fn:not(fn:exists($baseNode/execution/server-id))) then
+              <server-id>{$element-value}</server-id>
+             else if($element-name = 'request-id' and fn:not(fn:exists($baseNode/execution/request-id))) then
+              <request-id>{$element-value}</request-id>
+             else ()
+           where fn:exists($newElement)
+           return
+             xdmp:node-insert-child($baseNode/execution, $newElement)
          ),
           xdmp:commit()
         },
@@ -288,7 +292,7 @@ declare function core:update-job-status(
   $job-uri as xs:string,
   $status as xs:string
 )as item()* {
-    xdmp:node-replace(fn:doc($job-uri)//job-status, <job-status>{$status}</job-status>),
+    xdmp:node-replace(fn:doc($job-uri)/element()/job-status, <job-status>{$status}</job-status>),
 };
 
 (:~

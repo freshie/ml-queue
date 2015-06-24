@@ -17,6 +17,7 @@
  :
  : @author Tyler Replogle
  :)
+
 xquery version "1.0-ml";
 
 import module namespace config = "http://github.com/freshie/ml-queue/config" at "/config.xqy";

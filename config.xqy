@@ -22,11 +22,14 @@ xquery version "1.0-ml";
 
 module namespace config = "http://github.com/freshie/ml-queue/job";
 
+(: is ussed to decided what host to look for jobs :)
+declare variable $currentHost := xdmp:host-name();
+
 (: the base uri for the jobs :)
 declare variable $job-xml-base :=  "/queue/"
 
 (: used when saving the job documents :)
-declare variable $permissiosn := xdmp:default-permissions()
+declare variable $permissions := xdmp:default-permissions()
 
 (: is expect to be put into an xml doc and queriable  :)
 declare variable $environment := "LOCAL"
