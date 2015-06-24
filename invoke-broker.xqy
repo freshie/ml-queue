@@ -20,35 +20,30 @@
 
 xquery version "1.0-ml";
 
-import module namespace broker = "http://aetna.com/edh/libraries/edh-job-queue-broker" at "/app/lib/edh-job-queue-broker.xqy";
-import module namespace config = "http://marklogic.com/roxy/config" at "/app/config/config.xqy";
-import module namespace edh-message = "http://aetna.com/edh/libraries/edh-message" at "/app/lib/edh-message.xqy";
+import module namespace broker = "http://github.com/freshie/ml-queue/broker" at "/broker.xqy";
+import module namespace config = "http://github.com/freshie/ml-queue/config" at "/config.xqy";
 
-let $host-id := xdmp:host()
-let $task-server-id :=xdmp:host-status($host-id)/*:task-server/*:task-server-id/text()
+declare namespace host = "http://marklogic.com/xdmp/status/host";
+declare namespace status ="http://marklogic.com/xdmp/status/server";
+
+
+let $host-id := $config:currentHost
+let $task-server-id :=xdmp:host-status($host-id)/host:task-server/host:task-server-id/text()
 let $server-status := xdmp:server-status($host-id,$task-server-id)
-let $host-free-threads := fn:data($server-status//*:max-threads) - fn:data($server-status//*:threads)
-let $_ := if ($host-free-threads > 0) then
-						edh-job-queue-broker:run()
-					else ()
+let $host-free-threads := xs:int($server-status/status:max-threads) - xs:int($server-status/status:threads)
 
-for $request-status in $server-status//*:request-status
-	let $request-id := $request-status//*:request-id/text()
+let $_ :=
+  if ($host-free-threads > 0) then
+		broker:run()
+	else ()
 
-  	let $job-start-time := xs:dateTime($request-status//*:start-time/text())
-  	let $job-running-time := minutes-from-duration(fn:current-dateTime() - $job-start-time)
-  	let $_ := if ($job-running-time > $config:REQUEST-TIMEOUT-TIME) then
-		     (
-                edh-message:log-job-queuing("log",
-                                            "job-queuing-info",
-                                            "job-queue",
-                                            "",
-                                            "",
-                                            fn:concat("Job running time is ",$job-running-time, " and it exceeded the time limit")
-                                           ),
-			    edh-job-queue-broker:stop-long-running-jobs($request-id)
-		      )
-			  else ()
+(: checks for long running jobs :)
+for $request-status in $server-status/status:request-statuses/status:request-status
+	let $request-id := $request-status/status:request-id/text()
+	let $job-start-time := xs:dateTime($request-status/status:start-time/text())
+	let $job-running-time := minutes-from-duration(fn:current-dateTime() - $job-start-time)
+	let $_ :=
+    if ($job-running-time > $config:jobTimeOut) then
+		    broker:stop-long-running-jobs($request-id)
+		  else ()
 return ()
-
-

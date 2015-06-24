@@ -34,6 +34,9 @@ declare variable $permissions := xdmp:default-permissions()
 (: is expect to be put into an xml doc and queriable  :)
 declare variable $environment := "LOCAL"
 
+(: the amount of time that a job can run for  in minutes:)
+declare variable $jobTimeOut := 30
+
 (:
  sets the priority, number of threads, host details etc for a type of request
  This is expected to be pushed into an xml doc so that it could change for each environment
