@@ -24,7 +24,6 @@ module namespace core = "http://github.com/freshie/ml-queue/core";
 
 import module namespace config = "http://github.com/freshie/ml-queue/config" at "/config.xqy";
 
-
 (:~
  : Function used to generate the unique id
 :)

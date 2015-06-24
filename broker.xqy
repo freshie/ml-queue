@@ -20,121 +20,109 @@
 
 xquery version "1.0-ml";
 
-module namespace edh-job-queue-broker = "http://github.com/freshie/ml-queue/broker";
-import module namespace req = "http://marklogic.com/roxy/request" at "/roxy/lib/request.xqy";
-import module namespace edh-controller = "http://aetna.com/edh/libraries/edh-controller" at "/app/lib/edh-controller.xqy";
-import module namespace edh-resolver = "http://aetna.com/edh/libraries/edh-resolver" at "/app/lib/edh-resolver.xqy";
-import module namespace config = "http://marklogic.com/roxy/config" at "/app/config/config.xqy";
-import module namespace edh-core = "http://aetna.com/edh/libraries/edh-core" at "/app/lib/edh-core.xqy";
-import module namespace edh-message = "http://aetna.com/edh/libraries/edh-message" at "/app/lib/edh-message.xqy";
-import module namespace edh-job-queue-core = "http://aetna.com/edh/libraries/edh-job-queue-core" at "/app/lib/edh-job-queue-core.xqy";
+module namespace broker = "http://github.com/freshie/ml-queue/broker";
+
+import module namespace config = "http://github.com/freshie/ml-queue/config" at "/config.xqy";
+import module namespace core = "http://github.com/freshie/ml-queue/broker" at "/core.xqy";
+
+declare namespace host = "http://marklogic.com/xdmp/status/host";
+declare namespace status ="http://marklogic.com/xdmp/status/server";
 
 (:
  : Broker function used to schedule a job request in the host based on the free threads available
 :)
-declare function edh-job-queue-broker:run() as item()*{
-  
-    let $host-name := xdmp:host-name()
-    let $request-type-map := edh-job-queue-core:get-request-type-for-host($host-name)
+declare function broker:run() as item()* {
 
-    let $job-xmls := for $type in map:keys($request-type-map)
-                        let $xmls := if($type = "default") then
-                                     (
-                                        cts:search(fn:collection(),
-                                                   cts:and-query((
-                                                  	 cts:directory-query($config:EDH-OPTIONS/job-xml-base, "infinity"),
-                                                  	 cts:element-attribute-value-query(xs:QName('type'), xs:QName('value'), $type),
-                                                  	 cts:or-query((cts:element-value-query(xs:QName('job-status'), 'Added'),
-                                                  	               cts:element-value-query(xs:QName('job-status'), 'Error')))
-                                                  	)))
-                                     )
-                                     else
-                                     (
-                                        cts:search(fn:collection(),
-                                                   cts:and-query((
-                                                  	 cts:directory-query($config:EDH-OPTIONS/job-xml-base, "infinity"),
-                                                  	 cts:element-value-query(xs:QName('type'), $type),
-                                                  	 cts:or-query((cts:element-value-query(xs:QName('job-status'), 'Added'),
-                                                  	               cts:element-value-query(xs:QName('job-status'), 'Error')))
-                                                  )))
-                                     )
-                        let $xmls := for $xml in $xmls
-                                      order by xs:int($xml/@priority) descending, xs:dateTime($xml/job/workflow/status[@type="Added"]/@dateTime) ascending, xs:dateTime($xml/job/workflow/status[@type="Error"]/@dateTime)
-                                     return $xml
-                        return $xmls[1 to map:get($request-type-map, $type)]
+    let $request-type-map := core:get-request-type-for-host($config:currentHost)
+
+    let $job-xmls :=
+    	for $type in map:keys($request-type-map)
+	        let $xmls :=
+	        	if($type = "default") then
+	                cts:search(fn:collection(),
+	                           cts:and-query((
+	                          	 cts:directory-query($config:job-xml-base, "infinity"),
+	                          	 cts:element-attribute-value-query(xs:QName('type'), xs:QName('value'), $type),
+	                          	 cts:or-query((cts:element-value-query(xs:QName('job-status'), 'Added'),
+	                          	               cts:element-value-query(xs:QName('job-status'), 'Error')))
+	                          	)))
+	             else
+	                cts:search(fn:collection(),
+	                           cts:and-query((
+	                          	 cts:directory-query($config:job-xml-base, "infinity"),
+	                          	 cts:element-value-query(xs:QName('type'), $type),
+	                          	 cts:or-query((cts:element-value-query(xs:QName('job-status'), 'Added'),
+	                          	               cts:element-value-query(xs:QName('job-status'), 'Error')))
+	                          )))
+
+    	return
+    	(
+    		for $xml in $xmls
+        	order by xs:int($xml/@priority) descending, xs:dateTime($xml/job/workflow/status[@type="Added"]/@dateTime) ascending, xs:dateTime($xml/job/workflow/status[@type="Error"]/@dateTime)
+        	return $xml
+        )[1 to map:get($request-type-map, $type)]
+
+    let $hostID := xdmp:host($config:currentHost)
 	let $request-count := fn:count($job-xmls)
-	let $task-server-id :=xdmp:host-status(xdmp:host($host-name))/*:task-server/*:task-server-id/text()
-    let $server-status := xdmp:server-status(xdmp:host($host-name),$task-server-id)
-    let $host-free-threads := fn:data($server-status//*:max-threads) - fn:data($server-status//*:threads)
-    let $job-xmls := if($host-free-threads >= $request-count) then
-                        $job-xmls
-                     else $job-xmls[1 to $host-free-threads]
-	(:let $jobs :=
-		cts:search(
-		  fn:collection(),
-		  cts:and-query((
-		    cts:directory-query($config:EDH-OPTIONS/job-xml-base, "infinity")
-		  ))
-		):)
-	
+	let $task-server-id := xdmp:host-status($hostID)/host:task-server/host:task-server-id/text()
+    let $server-status :=  xdmp:server-status($hostID,$task-server-id)
+    let $host-free-threads := xs:int($server-status/status:max-threads) - xs:int($server-status/status:threads)
+    let $job-xmls :=
+    	if($host-free-threads >= $request-count) then
+            $job-xmls
+        else
+        	$job-xmls[1 to $host-free-threads]
+
 	for $job in $job-xmls
 		let $xml := $job/element()
-		let $_ := if($xml//workflow/status[fn:last()]/@type = 'Added' or ($xml//workflow/status[fn:last()]/@type = 'Error' and $xml//type/@num-of-retry > 0)) then
-		          (		   
-		            
-		            let $job-uri := edh-job-queue-core:create-uri($xml/@id, $xml/@batch)
-              		let $add-status := if($xml//workflow/status[fn:last()]/@type = 'Added') then 
-              		                        edh-job-queue-core:add-job-status($job-uri, "Running")
-              		                   else
-              		                   (
-              		                        edh-job-queue-core:add-job-status($job-uri, "Restarted"),
-              		                        edh-job-queue-core:add-job-status($job-uri, "Running"),
-              		                        edh-job-queue-core:set-num-of-retry($job-uri, $xml//type/text(), $xml//type/@num-of-retry)
-              		                   )
-              		let $_ := edh-job-queue-core:update-job-status($job-uri, "Running")
+		let $lastStatus := $xml/element()/workflow/status[fn:last()]/@type
+		let $typeElement := $xml/element()/type
+		let $_ :=
+			if ($lastStatus eq 'Added' or ($lastStatus eq 'Error' and $typeElement/@num-of-retry > 0)) then
+		          (
+		            let $job-uri := core:create-uri($xml/@id, $xml/@batch)
+              		let $add-status :=
+              			if($lastStatus eq 'Added') then
+	                        core:add-job-status($job-uri, "Running")
+	                    else
+	                    (
+	                        core:add-job-status($job-uri, "Restarted"),
+	                        core:add-job-status($job-uri, "Running"),
+	                        core:set-num-of-retry($job-uri, $typeElement/text(), $typeElement/@num-of-retry)
+	                    )
+              		let $_ := core:update-job-status($job-uri, "Running")
+
               		(:Insert a document for capturing execution specs for the job:)
-              		let $_ := xdmp:document-insert(fn:replace($job-uri,".xml", "-execution-specs.xml"), <execution job-id="{$xml/@id}" batch-id="{$xml/@batch}"></execution>)
-                    let $log := edh-message:log-job-queuing("log",
-                                                            "job-queuing-error",
-                                                            "job-queue",
-                                                            "",
-                                                            "",
-                                                            fn:concat($job-uri," : Job exection specification document created")
-                                                            )
-                    let $run := try
-                          		{
-                                  if(fn:doc($job-uri)//workflow/status[fn:last()]/@type = 'Stopped' or fn:doc($job-uri)//workflow/status[fn:last()]/@type = 'Removed') then ()
-                          		  else
-                          		  (
-                                     xdmp:spawn(
-                                         "/app/lib/edh-execute-queued-job.xqy",
-                                         (xs:QName("job-uri"), $job-uri, xs:QName("job-xml"), $xml),
-                                         <options xmlns="xdmp:eval">
-                                          <transaction-mode>update</transaction-mode>
-                                         </options>
-                                     ),
-                                     xdmp:commit()
-                                  )
-                                  }
-                                  catch($e)
-                                  {
-                                    let $log := edh-message:log-job-queuing("log",
-                                                                    "job-queuing-error",
-                                                                    "job-queue",
-                                                                    "",
-                                                                    "",
-                                                                    $e
-                                               )
-                                    let $_ := edh-job-queue-core:add-job-status($job-uri, "Error")
-                                    return edh-job-queue-core:update-job-status($job-uri, "Error")
-                                 }
-                    return () 
+              		let $_ := xdmp:document-insert(fn:replace($job-uri,".xml", "-execution-specs.xml"), <execution job-id="{$xml/@id}" batch-id="{$xml/@batch}"></execution>, $config:permissions)
+
+                    let $run :=
+                    	try
+                  		{
+                          if ($lastStatus eq ('Stopped','Removed')) then
+                          	()
+                  		  else
+                  		  (
+                             xdmp:spawn(
+                                 "/execute-job-wrapper.xqy",
+                                 (xs:QName("job-uri"), $job-uri, xs:QName("job-xml"), $xml),
+                                 <options xmlns="xdmp:eval">
+                                  <transaction-mode>update</transaction-mode>
+                                 </options>
+                             ),
+                             xdmp:commit()
+                          )
+                          }
+                          catch($e)
+                          {
+                            let $_ := core:add-job-status($job-uri, "Error")
+                            return core:update-job-status($job-uri, "Error")
+                         }
+                    return ()
                   )
                   else ()
 		order by xs:int($xml/@priority) descending, xs:dateTime($xml/workflow/status[@type="Added"]/@dateTime), xs:dateTime($xml/workflow/status[@type="restarted"]/@dateTime)
-	return 
+	return
 	 	$xml/@id
-	 	
 };
 
 
@@ -142,59 +130,36 @@ declare function edh-job-queue-broker:run() as item()*{
  : Function used to stop the request running greater than request time out time and update the status based on the retry option
  : @param @request-id - id of the request which is running for long time
 :)
-declare function edh-job-queue-broker:stop-long-running-jobs($request-id as xs:string)  {
-  let $jobs :=
+declare function broker:stop-long-running-jobs($request-id as xs:string)  {
+  	let $jobs :=
 		cts:search(
 		  fn:collection(),
 		  cts:and-query((
-		    cts:directory-query($config:EDH-OPTIONS/job-xml-base, "infinity"),cts:element-value-query(xs:QName("request-id"),$request-id)
+		    cts:directory-query($config:EDH-OPTIONS/job-xml-base, "infinity"),
+		    cts:element-value-query(xs:QName("request-id"),$request-id)
 		  ))
 		)
+
 	for $job in $jobs
-			let $job-exec-xml := $job/element()
-			let $job-id := $job//@job-id
-		    let $batch-id := $job//@batch-id
-			let $job-uri := edh-job-queue-core:create-uri($job-id, $batch-id)
-			let $job-exec-uri := fn:replace($job-uri,".xml", "-execution-specs.xml")
-			let $response := try {
-							         let $_ := xdmp:request-cancel($job-exec-xml/host-id/text(), $job-exec-xml/server-id/text(), $job-exec-xml/request-id/text())	
-                                     let $log := edh-message:log-job-queuing("log",
-                                                                            "job-queuing-error",
-                                                                            "job-queue",
-                                                                            "",
-                                                                            "",
-                                                                            concat($job-uri," : Job request cancelled due to time out")
-                                                )
-									 let $_ := if(xs:integer(fn:doc($job-uri)//type/@num-of-retry) > 0) then
-									           (
-									               edh-job-queue-core:add-job-status($job-uri, "Error"),
-									               edh-job-queue-core:update-job-status($job-uri, "Error")
-									           )
-									           else
-									           (
-									               edh-job-queue-core:add-job-status($job-uri, "Error"),
-									               edh-job-queue-core:add-job-status($job-uri, "Removed"),
-									               edh-job-queue-core:update-job-status($job-uri, "Removed")
-									           )
-									 let $_ := xdmp:document-delete($job-exec-uri)
-                                     let $log := edh-message:log-job-queuing("log",
-                                                                            "job-queuing-error",
-                                                                            "job-queue",
-                                                                            "",
-                                                                            "",
-                                                                            concat($job-uri," : Job execution specification document deleted")
-                                                )                            
-									 return ()
-								 }
-								 catch($e) {
-										      let $log := edh-message:log-job-queuing("log",
-                                                            "job-queuing-error",
-                                                            "job-queue",
-                                                            "",
-                                                            "",
-                                                            $e
-                                               )
-                       		 return ()
-                       }
+		let $job-exec-xml := $job/element()
+		let $job-id := $job-exec-xml/@job-id
+	    let $batch-id := $job-exec-xml/@batch-id
+		let $job-uri := core:create-uri($job-id, $batch-id)
+		let $job-exec-uri := fn:replace($job-uri,".xml", "-execution-specs.xml")
+		let $response :=
+			let $_ := xdmp:request-cancel($job-exec-xml/host-id/text(), $job-exec-xml/server-id/text(), $job-exec-xml/request-id/text())
+			let $_ := if(xs:integer($job-exec-xml/type/@num-of-retry) > 0) then
+			       (
+			           core:add-job-status($job-uri, "Error"),
+			           core:update-job-status($job-uri, "Error")
+			       )
+			       else
+			       (
+			           core:add-job-status($job-uri, "Error"),
+			           core:add-job-status($job-uri, "Removed"),
+			           core:update-job-status($job-uri, "Removed")
+			       )
+			let $_ := xdmp:document-delete($job-exec-uri)
+			return ()
 		return ()
 };
